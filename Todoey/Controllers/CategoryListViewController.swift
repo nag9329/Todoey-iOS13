@@ -7,24 +7,41 @@
 //
 
 import UIKit
-import CoreData
+import RealmSwift
+import ChameleonFramework
 
-class CategoryListViewController: UITableViewController {
+class CategoryListViewController: SwipeTableViewController {
     
-    let context = (UIApplication.shared.delegate as? AppDelegate)!.persistentContainer.viewContext
-    var categories:[Category] = []
+    var categories:Results<Category>?
+    let realm = try! Realm()
     
     override func viewDidLoad() {
         super.viewDidLoad()
         loadCategories()
-        print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!)
     }
-
-     //MARK: - Navigation
-
+    
+    override func viewWillAppear(_ animated: Bool) {
+        guard let navBar = navigationController?.navigationBar else { fatalError("Navigation controller does not exist.")
+        }
+        navBar.backgroundColor = UIColor(hexString: "#1D9BF6")
+    }
+    override func updateModel(at row: Int) {
+        if let rowItem = categories?[row] {
+            do {
+                try realm.write {
+                    realm.delete(rowItem)
+                }
+            } catch {
+                print("Error deleting categories \(error)")
+            }
+        }
+    }
+    
+    //MARK: - Navigation
+    
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         let destinationVC = segue.destination as! TodoListViewController
-        destinationVC.selectedCategory = categories[tableView.indexPathForSelectedRow!.row]
+        destinationVC.selectedCategory = categories?[tableView.indexPathForSelectedRow!.row]
     }
     
     @IBAction func addCategoryPressed(_ sender: UIBarButtonItem) {
@@ -35,15 +52,22 @@ class CategoryListViewController: UITableViewController {
         }
         alert.addAction(UIAlertAction.init(title: "Add", style: .default, handler: { (action) in
             if let text = textField.text {
-                let category = Category(context: self.context)
+                let category = Category()
                 category.name = text
-                self.categories.append(category)
-                self.saveCategories()
+                category.color = UIColor.randomFlat().hexValue()
+                do {
+                    try self.realm.write {
+                        self.realm.add(category)
+                    }
+                } catch {
+                    print("Error saving categories \(error)")
+                }
             }
+            self.loadCategories()
         }))
         present(alert, animated: true, completion: nil)
     }
-
+    
 }
 
 //MARK: - Categories retrieve and save
@@ -51,20 +75,7 @@ class CategoryListViewController: UITableViewController {
 extension CategoryListViewController {
     
     func loadCategories() {
-        let request:NSFetchRequest<Category> = Category.fetchRequest()
-        do {
-            categories = try context.fetch(request)
-        } catch {
-            print("Retrieving fetching categories \(error)")
-        }
-    }
-    
-    func saveCategories() {
-        do {
-          try context.save()
-        } catch {
-            print("Error saving categories \(error)")
-        }
+        categories = realm.objects(Category.self)
         tableView.reloadData()
     }
     
@@ -73,15 +84,20 @@ extension CategoryListViewController {
 // MARK: - Table view data source
 
 extension CategoryListViewController {
-
+    
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return categories.count
+        return categories?.count ?? 0
     }
-
+    
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "CategoryCell", for: indexPath)
-        cell.textLabel?.text = categories[indexPath.row].name
+        let cell = super.tableView(tableView, cellForRowAt: indexPath)
+        if let category = categories?[indexPath.row] {
+            cell.textLabel?.text = category.name
+            let color = UIColor(hexString: category.color)!
+            cell.backgroundColor = color
+            cell.textLabel?.textColor = ContrastColorOf(color, returnFlat: true)
+        }
         return cell
     }
 }
@@ -92,6 +108,7 @@ extension CategoryListViewController {
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         performSegue(withIdentifier: "TodoVC", sender: self)
+        tableView.deselectRow(at: indexPath, animated: true)
     }
 }
-    
+
